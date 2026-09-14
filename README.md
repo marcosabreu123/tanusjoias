@@ -15,6 +15,7 @@ outro sistema.
 | Garantia do banho, com snapshot na venda e consulta de balcão | `src/lib/garantia.ts`, `/garantia` |
 | Lançamento em lote pela IA (texto colado, PDF ou foto da lista) | `src/lib/lote/`, `/produtos/lote` |
 | Etiqueta com banho, tamanho e aro | `src/components/EtiquetaProduto.tsx` |
+| Venda parcelada no cartão, com a taxa da maquininha descontada do lucro | `src/lib/taxasCartao.ts`, `/financeiro/taxas-cartao` |
 | Tema escuro com acento ouro rosé | `src/app/globals.css` |
 
 O vocabulário ("Peça" no lugar de "Produto"), as opções de cada campo, as
@@ -55,6 +56,31 @@ só traz o custo.
 
 Requer `OPENAI_API_KEY`. Para planilha, a importação por CSV continua em
 `/ferramentas/importar`.
+
+### Cartão parcelado e taxa da maquininha
+
+Em **Gestão › Taxas do cartão** (`/financeiro/taxas-cartao`, só o Dono) cadastra-se
+o percentual retido por forma e por número de parcelas — o que está no extrato da
+adquirente.
+
+Na venda, escolhendo crédito aparece o seletor de parcelas e, embaixo, quanto a
+maquininha retém e quanto a loja recebe. Três pontos que importam:
+
+- **A taxa não é cobrada do cliente.** Ele paga `total` do mesmo jeito; a taxa sai
+  do que a loja recebe. Por isso não entra no total nem no saldo devedor.
+- **Cada venda guarda a taxa do dia** (`taxaCartaoBpsSnapshot` e `taxaCartaoValor`).
+  Renegociar com a adquirente vale daqui para a frente e não reescreve o lucro
+  passado.
+- **Combinação sem taxa cadastrada vale 0%**, de propósito — o sistema não chuta
+  percentual. Enquanto não houver nada cadastrado, a tela de venda e o relatório
+  de lucro avisam que a maquininha não está sendo descontada.
+
+No relatório de lucro a taxa aparece como linha própria (entre lucro bruto e
+líquido) e há uma tabela de quanto foi retido em cada parcelamento — é a resposta
+para "vale a pena continuar parcelando em 6x?".
+
+A taxa é calculada sobre o total no momento da venda e **não é recalculada em
+devolução parcial**, porque a adquirente cobra sobre o que passou na máquina.
 
 ## Como rodar
 
@@ -116,6 +142,7 @@ em lote segue a mesma regra.
 src/config/nicho.ts          <- PONTO ÚNICO de personalização
 src/lib/                     <- regras de negócio (vendas, estoque, lucro...)
 src/lib/garantia.ts          <- garantia do banho
+src/lib/taxasCartao.ts       <- taxa da maquininha por forma/parcelas
 src/lib/lote/                <- lançamento em lote: interpretar + aplicar
 src/lib/assistente/          <- IA: ferramentas, prévia/confirmação, execução
 src/app/                     <- telas e rotas
@@ -128,4 +155,4 @@ prisma/schema.prisma         <- modelo de dados
   `negocio.logoPath` se o arquivo tiver outro nome.
 - Criar o projeto Supabase e rodar `npx prisma migrate deploy` + `npm run db:seed`.
 - Criar o projeto Vercel ligado a este repositório, com as variáveis de ambiente.
-- Fase 2: venda parcelada no cartão com taxa da maquininha descontada do lucro.
+- Cadastrar as taxas reais da maquininha em Gestão › Taxas do cartão.

@@ -29,6 +29,7 @@ export type DadosFinalizarVenda = {
   clienteId?: string | null;
   dataVenda?: string | null; // "YYYY-MM-DD"; vazio/omitido usa o momento atual
   valorPago?: number; // centavos; omitido = total (pago integralmente)
+  parcelas?: number; // cartão de crédito; 1 = à vista
 };
 
 export async function finalizarVendaAction(dados: DadosFinalizarVenda): Promise<ResultadoFinalizarVenda> {
@@ -44,6 +45,7 @@ export async function finalizarVendaAction(dados: DadosFinalizarVenda): Promise<
       usuarioId: usuario.id,
       dataHora: dados.dataVenda ? new Date(`${dados.dataVenda}T00:00:00`) : undefined,
       valorPago: dados.valorPago,
+      parcelas: dados.parcelas,
     });
 
     revalidatePath("/estoque");

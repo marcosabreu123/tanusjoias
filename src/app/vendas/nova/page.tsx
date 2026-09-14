@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { CarrinhoVenda } from "@/components/CarrinhoVenda";
 import { buscarVendaPorId } from "@/lib/vendas";
 import { estoqueTotalProduto } from "@/lib/produtos";
+import { taxasAtivasPorForma } from "@/lib/taxasCartao";
 import type { ItemCarrinhoCliente } from "@/components/CarrinhoVenda";
 
 export default async function NovaVendaPage({
@@ -13,6 +14,8 @@ export default async function NovaVendaPage({
 }) {
   const usuario = await requireLeitura("vendas");
   const { duplicar } = await searchParams;
+
+  const taxasCartao = await taxasAtivasPorForma();
 
   let itensIniciais: ItemCarrinhoCliente[] | undefined;
 
@@ -47,7 +50,7 @@ export default async function NovaVendaPage({
   return (
     <AppShell usuario={usuario} wide>
       <PageHeader title="Nova venda" />
-      <CarrinhoVenda itensIniciais={itensIniciais} />
+      <CarrinhoVenda itensIniciais={itensIniciais} taxasCartao={taxasCartao} />
     </AppShell>
   );
 }

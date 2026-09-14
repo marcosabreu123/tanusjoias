@@ -19,6 +19,7 @@ import {
   IconAuditoria,
   IconDespesas,
   IconDinheiro,
+  IconCartao,
   IconEntradaEstoque,
   IconGarantia,
   IconChat,
@@ -95,6 +96,7 @@ export function Sidebar({ usuario }: { usuario: SessaoUsuario }) {
             { href: "/usuarios", label: "Usuários", Icon: IconUsuarios, recurso: undefined },
             { href: "/auditoria", label: "Auditoria", Icon: IconAuditoria, recurso: undefined },
             { href: "/assistente/configuracoes", label: "Assistente de IA", Icon: IconChat, recurso: undefined },
+            { href: "/financeiro/taxas-cartao", label: "Taxas do cartão", Icon: IconCartao, recurso: undefined },
             { href: "/integracoes/melhor-envio", label: "Melhor Envio", Icon: IconFrete, recurso: undefined },
           ]
         : []),

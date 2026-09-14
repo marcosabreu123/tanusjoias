@@ -91,6 +91,8 @@ export type IndicadoresLucro = {
   faturamentoLiquido: number;
   cmv: number;
   lucroBruto: number;
+  /** Retido pela maquininha — sai do que a loja recebe, não do que o cliente paga. */
+  taxasCartao: number;
   despesasOperacionais: number;
   lucroLiquido: number;
   margemBruta: number;
@@ -104,17 +106,21 @@ export async function indicadoresLucro(periodo: { inicio: Date; fim: Date }, reg
 
   const vendas = await prisma.venda.findMany({
     where: { dataHora: { gte: periodo.inicio, lte: periodo.fim }, status: { in: [...STATUS_FATURAMENTO_VALIDO] } },
-    select: { subtotal: true, descontoTotal: true, itens: { select: { subtotalItem: true, custoRealSnapshot: true, quantidade: true, itensDevolvidos: { select: { quantidade: true } } } } },
+    select: { subtotal: true, descontoTotal: true, taxaCartaoValor: true, itens: { select: { subtotalItem: true, custoRealSnapshot: true, quantidade: true, itensDevolvidos: { select: { quantidade: true } } } } },
   });
 
   let faturamentoBruto = 0;
   let descontos = 0;
   let devolucoes = 0;
   let cmv = 0;
+  let taxasCartao = 0;
 
   for (const venda of vendas) {
     faturamentoBruto += venda.subtotal;
     descontos += venda.descontoTotal;
+    // A taxa foi calculada sobre o total no momento da venda e não é recalculada
+    // em devolução parcial — a adquirente cobra sobre o que passou na máquina.
+    taxasCartao += venda.taxaCartaoValor;
     for (const item of venda.itens) {
       const calc = calcularItemLiquido(item);
       devolucoes += calc.receitaAbatida;
@@ -125,7 +131,7 @@ export async function indicadoresLucro(periodo: { inicio: Date; fim: Date }, reg
   const faturamentoLiquido = faturamentoBruto - descontos - devolucoes;
   const lucroBruto = faturamentoLiquido - cmv;
   const despesasOperacionais = await somaDespesasOperacionais(periodo, regime);
-  const lucroLiquido = lucroBruto - despesasOperacionais;
+  const lucroLiquido = lucroBruto - taxasCartao - despesasOperacionais;
 
   const qtdVendas = vendas.length;
 
@@ -136,6 +142,7 @@ export async function indicadoresLucro(periodo: { inicio: Date; fim: Date }, reg
     faturamentoLiquido,
     cmv,
     lucroBruto,
+    taxasCartao,
     despesasOperacionais,
     lucroLiquido,
     margemBruta: faturamentoLiquido > 0 ? (lucroBruto / faturamentoLiquido) * 100 : 0,
@@ -143,6 +150,64 @@ export async function indicadoresLucro(periodo: { inicio: Date; fim: Date }, reg
     ticketMedio: qtdVendas > 0 ? Math.round(faturamentoLiquido / qtdVendas) : 0,
     qtdVendas,
   };
+}
+
+export type LinhaTaxaCartao = {
+  chave: string;
+  label: string;
+  /** Total que passou na máquina nesse parcelamento. */
+  faturamento: number;
+  taxa: number;
+  /** Percentual efetivo do período, já considerando vendas com taxas diferentes. */
+  percentualEfetivo: number;
+  qtdVendas: number;
+};
+
+/**
+ * Quanto a maquininha reteve em cada parcelamento no período — é a resposta para
+ * "vale a pena continuar parcelando em 6x?".
+ */
+export async function taxasCartaoPorParcelamento(periodo: {
+  inicio: Date;
+  fim: Date;
+}): Promise<LinhaTaxaCartao[]> {
+  const vendas = await prisma.venda.findMany({
+    where: {
+      dataHora: { gte: periodo.inicio, lte: periodo.fim },
+      status: { in: [...STATUS_FATURAMENTO_VALIDO] },
+      formaPagamento: { in: ["CARTAO_CREDITO", "CARTAO_DEBITO"] },
+    },
+    select: { formaPagamento: true, parcelas: true, total: true, taxaCartaoValor: true },
+  });
+
+  const mapa = new Map<string, { label: string; faturamento: number; taxa: number; qtdVendas: number }>();
+
+  for (const venda of vendas) {
+    const chave = `${venda.formaPagamento}:${venda.parcelas}`;
+    const label =
+      venda.formaPagamento === "CARTAO_DEBITO"
+        ? "Débito"
+        : venda.parcelas <= 1
+          ? "Crédito à vista"
+          : `Crédito ${venda.parcelas}x`;
+
+    const atual = mapa.get(chave) ?? { label, faturamento: 0, taxa: 0, qtdVendas: 0 };
+    atual.faturamento += venda.total;
+    atual.taxa += venda.taxaCartaoValor;
+    atual.qtdVendas += 1;
+    mapa.set(chave, atual);
+  }
+
+  return Array.from(mapa.entries())
+    .map(([chave, linha]) => ({
+      chave,
+      label: linha.label,
+      faturamento: linha.faturamento,
+      taxa: linha.taxa,
+      percentualEfetivo: linha.faturamento > 0 ? (linha.taxa / linha.faturamento) * 100 : 0,
+      qtdVendas: linha.qtdVendas,
+    }))
+    .sort((a, b) => b.taxa - a.taxa);
 }
 
 export const LABEL_FORMA_PAGAMENTO: Record<FormaPagamento, string> = {

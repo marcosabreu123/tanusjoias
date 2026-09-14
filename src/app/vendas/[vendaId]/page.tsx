@@ -9,6 +9,7 @@ import { montarLinkWhatsAppResumoVenda } from "@/lib/whatsapp";
 import { listarInsumos, listarUsosPorVenda } from "@/lib/insumos";
 import { podeVerCustos } from "@/lib/permissoes";
 import { situacaoGarantia } from "@/lib/garantia";
+import { bpsParaPercentual } from "@/lib/taxasCartao";
 import { nicho } from "@/config/nicho";
 import { VendaAcoes } from "./VendaAcoes";
 import type { FormaPagamento, StatusVenda } from "@prisma/client";
@@ -90,7 +91,19 @@ export default async function VendaDetalhePage({
         </div>
         <div>
           <p className="label-caps mb-1">Forma de pagamento</p>
-          <p>{LABEL_PAGAMENTO[venda.formaPagamento]}</p>
+          <p>
+            {LABEL_PAGAMENTO[venda.formaPagamento]}
+            {venda.parcelas > 1 && ` · ${venda.parcelas}x de ${centavosParaReais(Math.round(venda.total / venda.parcelas))}`}
+          </p>
+          {/* A taxa não muda o que o cliente pagou, então só quem vê custo vê isso. */}
+          {podeVerCusto && venda.taxaCartaoValor > 0 && (
+            <p className="text-sm no-print" style={{ color: "var(--muted)" }}>
+              Maquininha reteve {centavosParaReais(venda.taxaCartaoValor)}
+              {venda.taxaCartaoBpsSnapshot !== null &&
+                ` (${bpsParaPercentual(venda.taxaCartaoBpsSnapshot)}%)`}{" "}
+              · loja recebeu {centavosParaReais(venda.total - venda.taxaCartaoValor)}
+            </p>
+          )}
         </div>
         {venda.status === "CANCELADA" && (
           <div>

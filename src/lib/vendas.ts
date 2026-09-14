@@ -1,6 +1,7 @@
 import { prisma } from "./db";
 import type { FormaPagamento, StatusVenda, Prisma } from "@prisma/client";
 import { nicho } from "@/config/nicho";
+import { calcularTaxaDaVenda, normalizarParcelas, temTaxa } from "./taxasCartao";
 
 export type ItemCarrinho = {
   produtoId: string;
@@ -17,6 +18,7 @@ export type DadosVenda = {
   usuarioId: string;
   dataHora?: Date; // permite lançar uma venda com data retroativa; padrão é agora
   valorPago?: number; // centavos — se menor que o total, o restante fica como débito do cliente; padrão é o total (pago integralmente)
+  parcelas?: number; // cartão de crédito; 1 = à vista. Não altera o que o cliente deve.
 };
 
 export class ErroVenda extends Error {}
@@ -119,6 +121,14 @@ export async function registrarVenda(dados: DadosVenda) {
       throw new ErroVenda("Valor pago inválido — não pode ser negativo nem maior que o total da venda.");
     }
 
+    // Taxa da maquininha: não entra no total (o cliente paga o mesmo), só fica
+    // registrada para o lucro saber o que a loja realmente recebeu.
+    const parcelas = normalizarParcelas(dados.formaPagamento, dados.parcelas);
+    const taxa = await calcularTaxaDaVenda(
+      { formaPagamento: dados.formaPagamento, parcelas, total },
+      tx
+    );
+
     const venda = await tx.venda.create({
       data: {
         usuarioId: dados.usuarioId,
@@ -129,6 +139,9 @@ export async function registrarVenda(dados: DadosVenda) {
         subtotal,
         total,
         valorPago,
+        parcelas,
+        taxaCartaoBpsSnapshot: temTaxa(dados.formaPagamento) ? taxa.percentualBps : null,
+        taxaCartaoValor: taxa.valor,
         dataHora: dados.dataHora ?? undefined,
         itens: { create: itensParaCriar },
       },

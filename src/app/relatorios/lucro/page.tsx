@@ -5,7 +5,7 @@ import { podeVerCustos } from "@/lib/permissoes";
 import { AppShell } from "@/components/AppShell";
 import { PageHeader } from "@/components/PageHeader";
 import { GraficoBarras, GraficoLinha, GraficoPizza } from "@/components/charts/GraficoSvg";
-import { indicadoresLucro, detalhamentoLucro, resolverPeriodo, type ChavePeriodo, type Regime, type AgrupamentoLucro } from "@/lib/lucro";
+import { indicadoresLucro, detalhamentoLucro, taxasCartaoPorParcelamento, resolverPeriodo, type ChavePeriodo, type Regime, type AgrupamentoLucro } from "@/lib/lucro";
 import { despesasPorCategoria } from "@/lib/relatorio-despesas";
 import { centavosParaReais } from "@/lib/money";
 
@@ -58,14 +58,21 @@ export default async function RelatorioLucroPage({ searchParams }: { searchParam
       : undefined
   );
 
-  const [indicadores, detalhamento, porDia, porProduto, porCategoriaLucro, despesasCategoria] = await Promise.all([
-    indicadoresLucro(periodo, regime),
-    detalhamentoLucro(periodo, agrupamento),
-    detalhamentoLucro(periodo, "dia"),
-    detalhamentoLucro(periodo, "produto"),
-    detalhamentoLucro(periodo, "categoria"),
-    despesasPorCategoria(periodo),
-  ]);
+  const [indicadores, detalhamento, porDia, porProduto, porCategoriaLucro, despesasCategoria, taxasCartao] =
+    await Promise.all([
+      indicadoresLucro(periodo, regime),
+      detalhamentoLucro(periodo, agrupamento),
+      detalhamentoLucro(periodo, "dia"),
+      detalhamentoLucro(periodo, "produto"),
+      detalhamentoLucro(periodo, "categoria"),
+      despesasPorCategoria(periodo),
+      taxasCartaoPorParcelamento(periodo),
+    ]);
+
+  // Houve venda no cartão mas nenhuma taxa cadastrada: o lucro está otimista e
+  // vale dizer isso, em vez de deixar o número passar como se estivesse certo.
+  const vendeuNoCartao = taxasCartao.length > 0;
+  const taxaNaoConfigurada = vendeuNoCartao && indicadores.taxasCartao === 0;
 
   const cartoes: Array<{ titulo: string; valor: string }> = [
     { titulo: "Faturamento bruto", valor: centavosParaReais(indicadores.faturamentoBruto) },
@@ -74,8 +81,14 @@ export default async function RelatorioLucroPage({ searchParams }: { searchParam
     { titulo: "Faturamento líquido", valor: centavosParaReais(indicadores.faturamentoLiquido) },
     { titulo: "Custo da mercadoria vendida", valor: centavosParaReais(indicadores.cmv) },
     { titulo: "Lucro bruto", valor: centavosParaReais(indicadores.lucroBruto) },
+    { titulo: "Taxa de cartão", valor: centavosParaReais(indicadores.taxasCartao) },
     { titulo: "Despesas operacionais", valor: centavosParaReais(indicadores.despesasOperacionais) },
-    { titulo: "Custo total da operação", valor: centavosParaReais(indicadores.cmv + indicadores.despesasOperacionais) },
+    {
+      titulo: "Custo total da operação",
+      valor: centavosParaReais(
+        indicadores.cmv + indicadores.taxasCartao + indicadores.despesasOperacionais
+      ),
+    },
     { titulo: "Lucro líquido", valor: centavosParaReais(indicadores.lucroLiquido) },
     { titulo: "Margem bruta", valor: `${indicadores.margemBruta.toFixed(1)}%` },
     { titulo: "Margem líquida", valor: `${indicadores.margemLiquida.toFixed(1)}%` },
@@ -183,6 +196,44 @@ export default async function RelatorioLucroPage({ searchParams }: { searchParam
           <GraficoBarras dados={porCategoriaLucro.slice(0, 5).map((linha) => ({ label: linha.label, valor: centavosParaNumero(linha.lucroBruto) }))} />
         </div>
       </section>
+
+      {vendeuNoCartao && (
+        <section className="mb-8">
+          <h2 className="label-caps mb-3">Taxa de cartão por parcelamento</h2>
+
+          {taxaNaoConfigurada && (
+            <p className="badge badge-danger mb-3">
+              Nenhuma taxa cadastrada — o lucro acima não está descontando a maquininha. Cadastre em
+              Gestão › Taxas do cartão.
+            </p>
+          )}
+
+          <div style={{ overflowX: "auto" }}>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left" style={{ color: "var(--muted)" }}>
+                  <th className="p-2">Parcelamento</th>
+                  <th className="p-2">Passou na máquina</th>
+                  <th className="p-2">Taxa retida</th>
+                  <th className="p-2">% efetivo</th>
+                  <th className="p-2">Vendas</th>
+                </tr>
+              </thead>
+              <tbody>
+                {taxasCartao.map((linha) => (
+                  <tr key={linha.chave} className="border-t" style={{ borderColor: "var(--border)" }}>
+                    <td className="p-2">{linha.label}</td>
+                    <td className="p-2">{centavosParaReais(linha.faturamento)}</td>
+                    <td className="p-2 font-semibold">{centavosParaReais(linha.taxa)}</td>
+                    <td className="p-2">{linha.percentualEfetivo.toFixed(2)}%</td>
+                    <td className="p-2">{linha.qtdVendas}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <section>
         <h2 className="label-caps mb-3">Detalhamento por {LABEL_AGRUPAMENTO[agrupamento]}</h2>

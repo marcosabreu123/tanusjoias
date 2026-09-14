@@ -11,6 +11,13 @@ import type { ClienteBusca } from "./ClienteAutocomplete";
 import type { FormaPagamento } from "@/lib/types";
 import { finalizarVendaAction } from "@/app/vendas/actions";
 import { nicho } from "@/config/nicho";
+import {
+  MAX_PARCELAS,
+  aceitaParcelamento,
+  bpsParaPercentual,
+  temTaxa,
+  valorDaTaxa,
+} from "@/lib/taxasCartao";
 
 export type ItemCarrinhoCliente = {
   produto: ProdutoVenda;
@@ -28,7 +35,14 @@ function hojeISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function CarrinhoVenda({ itensIniciais }: { itensIniciais?: ItemCarrinhoCliente[] }) {
+export function CarrinhoVenda({
+  itensIniciais,
+  taxasCartao = {},
+}: {
+  itensIniciais?: ItemCarrinhoCliente[];
+  /** Chave "FORMA:parcelas" → pontos-base. Ver src/lib/taxasCartao.ts. */
+  taxasCartao?: Record<string, number>;
+}) {
   const [categoria, setCategoria] = useState<string>("");
   const [termo, setTermo] = useState("");
   const [resultados, setResultados] = useState<ProdutoVenda[]>([]);
@@ -41,6 +55,7 @@ export function CarrinhoVenda({ itensIniciais }: { itensIniciais?: ItemCarrinhoC
   // PIX já vem pré-selecionado (forma de pagamento mais comum) — o vendedor
   // só troca se for outro método; continua editável normalmente.
   const [formaPagamento, setFormaPagamento] = useState<FormaPagamento | null>("PIX");
+  const [parcelas, setParcelas] = useState(1);
   const [descontoTotalStr, setDescontoTotalStr] = useState("");
   const [acrescimoTotalStr, setAcrescimoTotalStr] = useState("");
   const [dataVenda, setDataVenda] = useState(hojeISO());
@@ -86,6 +101,15 @@ export function CarrinhoVenda({ itensIniciais }: { itensIniciais?: ItemCarrinhoC
   const acrescimoTotal = reaisParaCentavos(acrescimoTotalStr || "0");
   const descontoInvalido = subtotal > 0 && descontoTotal > subtotal - acrescimoTotal;
   const total = Math.max(0, subtotal - descontoTotal + acrescimoTotal);
+  // Trocar para uma forma que não parcela volta para "à vista" — senão um 6x
+  // escolhido antes ficaria pendurado num PIX.
+  function trocarFormaPagamento(nova: FormaPagamento) {
+    setFormaPagamento(nova);
+    if (!aceitaParcelamento(nova)) setParcelas(1);
+  }
+
+  const taxaBps = formaPagamento ? (taxasCartao[`${formaPagamento}:${parcelas}`] ?? 0) : 0;
+  const taxaValor = valorDaTaxa(total, taxaBps);
   const valorPago = pagouTudo ? total : reaisParaCentavos(valorPagoStr || "0");
   const saldoDevedor = Math.max(0, total - valorPago);
   const valorPagoInvalido = !pagouTudo && (valorPago < 0 || valorPago > total);
@@ -143,6 +167,7 @@ export function CarrinhoVenda({ itensIniciais }: { itensIniciais?: ItemCarrinhoC
         clienteId: cliente?.id ?? null,
         dataVenda: dataVenda !== hojeISO() ? dataVenda : null,
         valorPago: pagouTudo ? undefined : valorPago,
+        parcelas,
       });
 
       if (!resultado.ok) {
@@ -154,6 +179,7 @@ export function CarrinhoVenda({ itensIniciais }: { itensIniciais?: ItemCarrinhoC
       setItens([]);
       setCliente(null);
       setFormaPagamento(null);
+      setParcelas(1);
       setDescontoTotalStr("");
       setAcrescimoTotalStr("");
       setDataVenda(hojeISO());
@@ -269,8 +295,48 @@ export function CarrinhoVenda({ itensIniciais }: { itensIniciais?: ItemCarrinhoC
 
         <div>
           <p className="label">Forma de pagamento</p>
-          <FormaPagamentoPicker valor={formaPagamento} aoMudar={setFormaPagamento} />
+          <FormaPagamentoPicker valor={formaPagamento} aoMudar={trocarFormaPagamento} />
         </div>
+
+        {formaPagamento && aceitaParcelamento(formaPagamento) && (
+          <div>
+            <label className="label" htmlFor="parcelas">
+              Parcelas
+            </label>
+            <select
+              id="parcelas"
+              className="input"
+              value={parcelas}
+              onChange={(evento) => setParcelas(Number(evento.target.value))}
+            >
+              {Array.from({ length: MAX_PARCELAS }, (_, i) => i + 1).map((numero) => (
+                <option key={numero} value={numero}>
+                  {numero === 1 ? "À vista" : `${numero}x`}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* O cliente paga o total de qualquer jeito — o que muda é o que a loja
+            recebe depois da maquininha. */}
+        {formaPagamento && temTaxa(formaPagamento) && total > 0 && (
+          <p className="text-sm" style={{ color: "var(--muted)" }}>
+            {parcelas > 1 && `${parcelas}x de ${centavosParaReais(Math.round(total / parcelas))} · `}
+            {taxaBps > 0 ? (
+              <>
+                maquininha retém {centavosParaReais(taxaValor)} ({bpsParaPercentual(taxaBps)}%) ·{" "}
+                <strong style={{ color: "var(--foreground)" }}>
+                  você recebe {centavosParaReais(total - taxaValor)}
+                </strong>
+              </>
+            ) : (
+              <span style={{ color: "var(--warning)" }}>
+                sem taxa cadastrada para este parcelamento — o lucro não vai descontar a maquininha
+              </span>
+            )}
+          </p>
+        )}
 
         <div>
           <label className="flex items-center gap-2 text-sm">

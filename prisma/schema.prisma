@@ -207,6 +207,22 @@ enum StatusVenda {
   DEVOLVIDA_TOTAL
 }
 
+/// Taxa da maquininha, por forma de cartão e número de parcelas. Uma linha por
+/// combinação; combinação sem linha cadastrada vale 0% (o sistema nunca chuta
+/// uma taxa, porque errar aqui distorce o lucro em silêncio).
+model TaxaCartao {
+  id             String         @id @default(cuid())
+  formaPagamento FormaPagamento
+  parcelas       Int            @default(1) // 1 = à vista
+  /// Pontos-base: 4,99% = 499. Inteiro pelo mesmo motivo de dinheiro ser centavos.
+  percentualBps  Int
+  ativo          Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@unique([formaPagamento, parcelas])
+}
+
 model Cliente {
   id          String   @id @default(cuid())
   nome        String
@@ -241,6 +257,14 @@ model Venda {
   subtotal           Int // centavos, soma dos itens antes do desconto/acréscimo geral
   total              Int // centavos, subtotal - descontoTotal + acrescimoTotal
   valorPago          Int            @default(0) // centavos — vai sendo incrementado até alcançar "total"; abaixo disso é débito do cliente
+  /// Parcelas no cartão de crédito. 1 = à vista. Não muda o que o cliente deve —
+  /// ele paga "total" de qualquer jeito; muda só o que a loja recebe.
+  parcelas              Int         @default(1)
+  /// Snapshot da taxa da maquininha aplicada (pontos-base) e do valor retido em
+  /// centavos. Congelados na venda pelo mesmo motivo do preço e do custo:
+  /// renegociar a taxa com a adquirente não pode reescrever o lucro do mês passado.
+  taxaCartaoBpsSnapshot Int?
+  taxaCartaoValor       Int         @default(0)
   status             StatusVenda    @default(CONCLUIDA)
   observacoes        String?
   motivoCancelamento String?
