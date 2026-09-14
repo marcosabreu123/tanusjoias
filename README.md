@@ -1,0 +1,131 @@
+# Tanus Joias — sistema de gestão
+
+Controle de estoque, vendas, clientes, compras, despesas, relatórios de lucro,
+cotação de frete e assistente de IA por texto e voz, adaptado para **semijoias**.
+
+Nasceu do molde universal `erp-base` e foi especializado para a Tanus. Banco,
+repositório e deploy são **exclusivos deste cliente** — nada é compartilhado com
+outro sistema.
+
+## O que é específico da Tanus
+
+| Recurso | Onde vive |
+|---|---|
+| Campos de semijoia: banho, espessura do banho, tamanho em cm, aro, material base, pedra | `prisma/schema.prisma` + `src/config/nicho.ts` |
+| Garantia do banho, com snapshot na venda e consulta de balcão | `src/lib/garantia.ts`, `/garantia` |
+| Lançamento em lote pela IA (texto colado, PDF ou foto da lista) | `src/lib/lote/`, `/produtos/lote` |
+| Etiqueta com banho, tamanho e aro | `src/components/EtiquetaProduto.tsx` |
+| Tema escuro com acento ouro rosé | `src/app/globals.css` |
+
+O vocabulário ("Peça" no lugar de "Produto"), as opções de cada campo, as
+categorias iniciais e o prazo padrão de garantia ficam todos em
+**`src/config/nicho.ts`** — mudar qualquer um deles não exige mexer em tela.
+
+### Os campos da peça
+
+Além de nome, categoria, SKU e preços:
+
+- **banho** — Dourado 18k, Prateado, Ródio branco, Ouro rosé, Ródio negro.
+  É também o filtro rápido da tela de venda.
+- **espessura do banho** — em milésimos (aceita decimal).
+- **tamanho (cm)** — comprimento de corrente, colar, pulseira (aceita decimal).
+- **aro / tamanho** — aro do anel ("16") ou letra ("M").
+- **material base** — latão, aço inox, prata 925, zamac.
+- **pedra / aplicação** — zircônia, pérola, cristal, resina...
+- **público** — feminino, masculino, unissex, infantil.
+- **garantia (meses)** — em branco usa o padrão da loja.
+
+A marca é opcional: em branco vira `termos.marcaPadrao` ("Tanus").
+
+### Lançamento em lote pela IA
+
+Em **Operacional › Lançamento em lote** (`/produtos/lote`): cole a lista do
+fornecedor ou anexe o PDF/foto dela. A IA monta uma **prévia editável** — nada é
+gravado nesse passo. Ao confirmar:
+
+1. cada peça é cadastrada, ou atualizada se o SKU já existir;
+2. tudo que tiver quantidade e custo entra no estoque numa **única entrada de
+   estoque**, com o frete rateado por unidade;
+3. peça sem preço de venda é recusada; sem quantidade ou sem custo é cadastrada
+   mas fica sem estoque — sempre com aviso na tela.
+
+SKU não informado é gerado por categoria (`COL-0001`, `ANE-0001`...). O
+multiplicador na tela sugere o preço de venda a partir do custo quando a lista
+só traz o custo.
+
+Requer `OPENAI_API_KEY`. Para planilha, a importação por CSV continua em
+`/ferramentas/importar`.
+
+## Como rodar
+
+Pré-requisito: Node.js 20+.
+
+Copie `.env.example` para `.env` e preencha as credenciais do Postgres (Supabase
+deste cliente). Depois:
+
+```bash
+npm install
+```
+
+```bash
+npx prisma migrate deploy
+```
+
+```bash
+npm run db:seed
+```
+
+```bash
+npm run dev
+```
+
+Abra http://localhost:3000 e entre com o e-mail/senha definidos no `.env`.
+Troque a senha em **Usuários** no primeiro acesso.
+
+> O `npm run build` falha se `NEXT_PUBLIC_SUPABASE_URL` e
+> `SUPABASE_SERVICE_ROLE_KEY` estiverem vazias — `src/lib/storage.ts` valida
+> isso no carregamento do módulo. Vale para a Vercel também: sem essas variáveis
+> configuradas, o deploy quebra na etapa de build, não em runtime.
+
+## O que já vem pronto (herdado do molde)
+
+- **Estoque por lote** com custo real (frete rateado na entrada), inventário,
+  ajustes e perdas, e um segundo pool ("Vitrine") separado do estoque vendável.
+- **Vendas** com desconto e acréscimo por item e no total, pagamento parcial com
+  controle de débito do cliente, cancelamento e devolução parcial.
+- **Compras**: pedido ao fornecedor e recebimento com lote e rateio de frete.
+- **Despesas** com categorias, recorrência e vencimento.
+- **Relatórios**: lucro por período com custo real, ranking e segmentação de
+  clientes, curva de produtos.
+- **Cotação de frete** (Melhor Envio) — apenas cotação, nunca compra de etiqueta.
+- **Assistente de IA** por texto e voz, que registra venda, cliente, fornecedor,
+  pedido de compra, entrada de estoque, despesa, ajuste e devolução.
+- **Permissões** por papel (Dono, Gerente, Vendedor, Estoque, Consulta) e
+  auditoria de tudo que muda.
+
+### Sobre o assistente de IA
+
+Nenhuma ação da IA grava direto: ela monta uma **prévia**, e só um "confirma"
+explícito do usuário executa. Essa decisão é tomada no servidor por regra fixa,
+nunca pelo modelo — que sequer recebe uma ferramenta de "executar". O lançamento
+em lote segue a mesma regra.
+
+## Estrutura
+
+```
+src/config/nicho.ts          <- PONTO ÚNICO de personalização
+src/lib/                     <- regras de negócio (vendas, estoque, lucro...)
+src/lib/garantia.ts          <- garantia do banho
+src/lib/lote/                <- lançamento em lote: interpretar + aplicar
+src/lib/assistente/          <- IA: ferramentas, prévia/confirmação, execução
+src/app/                     <- telas e rotas
+prisma/schema.prisma         <- modelo de dados
+```
+
+## Pendências combinadas
+
+- Trocar `public/logo.svg` (provisório) pela logo definitiva e apontar
+  `negocio.logoPath` se o arquivo tiver outro nome.
+- Criar o projeto Supabase e rodar `npx prisma migrate deploy` + `npm run db:seed`.
+- Criar o projeto Vercel ligado a este repositório, com as variáveis de ambiente.
+- Fase 2: venda parcelada no cartão com taxa da maquininha descontada do lucro.
