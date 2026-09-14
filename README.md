@@ -57,6 +57,33 @@ só traz o custo.
 Requer `OPENAI_API_KEY`. Para planilha, a importação por CSV continua em
 `/ferramentas/importar`.
 
+### Escolha do modelo de IA
+
+**Não existe nome de modelo no ambiente.** `OPENAI_ASSISTANT_MODEL` fica vazia de
+propósito: fixar um nome lá envelhece e obriga a mexer na Vercel toda vez que a
+OpenAI lança ou aposenta um modelo.
+
+Em vez disso, `src/lib/assistente/modelos.ts` pergunta à OpenAI quais modelos a
+conta tem, lê o número da família no próprio id (`gpt-5.4-mini` → versão 5.4,
+tier `mini`) e escolhe o mais novo do tier que a tarefa pede:
+
+| Uso | Tier | Por quê |
+|---|---|---|
+| Assistente (texto e voz) | `mini`, senão completo | Alto volume, o dia inteiro — o mini da geração passada custa uma fração e dá conta |
+| Lançamento em lote com PDF/foto | completo, senão `mini` | Uso esporádico; ler documento é onde o mini erra |
+| Transcrição de áudio | lista explícita | Esses ids não seguem o padrão de versão |
+
+`nano`, `pro` e os `-chat-latest` ficam de fora: fracos demais para *tool
+calling*, caros demais, ou não feitos para ferramentas.
+
+O catálogo é consultado uma vez por hora por instância. Se a OpenAI recusar o
+modelo escolhido (aposentadoria no meio do expediente), o sistema descarta aquele
+id e tenta o seguinte sozinho, sem deploy.
+
+Para fixar um modelo à força — teste, ou contornar um problema —, basta preencher
+`OPENAI_ASSISTANT_MODEL` (ou `OPENAI_TRANSCRIPTION_MODEL`); preenchidas, elas
+mandam em tudo.
+
 ### Cartão parcelado e taxa da maquininha
 
 Em **Gestão › Taxas do cartão** (`/financeiro/taxas-cartao`, só o Dono) cadastra-se
@@ -143,6 +170,7 @@ src/config/nicho.ts          <- PONTO ÚNICO de personalização
 src/lib/                     <- regras de negócio (vendas, estoque, lucro...)
 src/lib/garantia.ts          <- garantia do banho
 src/lib/taxasCartao.ts       <- taxa da maquininha por forma/parcelas
+src/lib/assistente/modelos.ts <- escolhe o modelo de IA sozinho, sem env
 src/lib/lote/                <- lançamento em lote: interpretar + aplicar
 src/lib/assistente/          <- IA: ferramentas, prévia/confirmação, execução
 src/app/                     <- telas e rotas
@@ -153,6 +181,5 @@ prisma/schema.prisma         <- modelo de dados
 
 - Trocar `public/logo.svg` (provisório) pela logo definitiva e apontar
   `negocio.logoPath` se o arquivo tiver outro nome.
-- Criar o projeto Supabase e rodar `npx prisma migrate deploy` + `npm run db:seed`.
 - Criar o projeto Vercel ligado a este repositório, com as variáveis de ambiente.
 - Cadastrar as taxas reais da maquininha em Gestão › Taxas do cartão.

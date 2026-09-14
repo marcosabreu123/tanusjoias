@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { assistenteConfig, ErroAssistente } from "@/lib/assistente/config";
+import { descartarModelo, ehErroDeModelo, escolherModelo } from "@/lib/assistente/modelos";
 import { nicho, resolverOpcao, type CampoTextoNicho } from "@/config/nicho";
 
 /**
@@ -208,17 +209,32 @@ export async function interpretarLista(entrada: {
       : "Extraia as peças da lista anexada.",
   });
 
-  const resposta = await openai.chat.completions.create({
-    model: assistenteConfig.model,
-    messages: [
-      { role: "system", content: montarInstrucoes() },
-      { role: "user", content: partes },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: { name: "lista_de_pecas", strict: true, schema: ESQUEMA },
-    },
-  });
+  // Lista em PDF/foto precisa de um modelo que aceite arquivo e imagem na
+  // entrada; texto colado se resolve com qualquer um. `escolherModelo` cuida
+  // disso e dispensa fixar o nome do modelo no ambiente.
+  const capacidade = entrada.arquivo ? "documento" : "conversa";
+
+  const chamar = async () =>
+    openai.chat.completions.create({
+      model: await escolherModelo(openai, capacidade),
+      messages: [
+        { role: "system", content: montarInstrucoes() },
+        { role: "user", content: partes },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "lista_de_pecas", strict: true, schema: ESQUEMA },
+      },
+    });
+
+  let resposta;
+  try {
+    resposta = await chamar();
+  } catch (erro) {
+    if (!ehErroDeModelo(erro)) throw erro;
+    descartarModelo(await escolherModelo(openai, capacidade));
+    resposta = await chamar();
+  }
 
   const conteudo = resposta.choices[0]?.message?.content;
   if (!conteudo) throw new ErroLote("A IA não conseguiu ler a lista. Tente colar o texto.");
