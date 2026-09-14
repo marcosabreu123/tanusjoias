@@ -69,7 +69,7 @@ tier `mini`) e escolhe o mais novo do tier que a tarefa pede:
 
 | Uso | Tier | Por quê |
 |---|---|---|
-| Assistente (texto e voz) | `mini`, senão completo | Alto volume, o dia inteiro — o mini da geração passada custa uma fração e dá conta |
+| Assistente (texto e voz) | completo, senão `mini` | Entende pedido falado no meio do atendimento; errar ali custa mais que a diferença de token |
 | Lançamento em lote com PDF/foto | completo, senão `mini` | Uso esporádico; ler documento é onde o mini erra |
 | Transcrição de áudio | lista explícita | Esses ids não seguem o padrão de versão |
 

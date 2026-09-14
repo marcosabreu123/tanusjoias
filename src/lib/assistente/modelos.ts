@@ -34,9 +34,11 @@ type Tier = "full" | "mini" | "nano" | "pro" | "chat";
 
 /** Ordem de preferência de tier por capacidade — o que vier antes ganha. */
 const TIERS_ACEITOS: Record<"conversa" | "documento", Tier[]> = {
-  // Balcão: alto volume, conversa curta. O mini da geração mais nova dá conta
-  // e custa uma fração do completo.
-  conversa: ["mini", "full"],
+  // Completo, por decisão do dono: o assistente entende pedido falado no meio
+  // do atendimento, e errar ali custa mais caro que a diferença de token.
+  // Trocar para ["mini", "full"] baixa bastante a fatura, com mais erro de
+  // interpretação no balcão.
+  conversa: ["full", "mini"],
   // Ler PDF/foto da lista do fornecedor: uso esporádico, precisão importa mais
   // que custo, e modelo mini erra mais em documento.
   documento: ["full", "mini"],
