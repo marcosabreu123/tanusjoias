@@ -177,9 +177,22 @@ src/app/                     <- telas e rotas
 prisma/schema.prisma         <- modelo de dados
 ```
 
+## Produção
+
+No ar em **https://tanusjoias.vercel.app** (banco Supabase `yunommseawmtjjhwiwkd`,
+região sa-east-1).
+
+> **O `framework` no `vercel.json` não é decoração.** Quando o projeto foi
+> importado, a Vercel não detectou o Next.js e ficou com Framework Preset =
+> "Other": o build passava (`npm run build` roda igual) mas o resultado era
+> publicado como site estático, sem nenhuma rota servida — todo caminho virava
+> `404 NOT_FOUND` na borda, com o deploy marcado Ready. Sintoma caro de
+> diagnosticar, porque nada no build denuncia. O arquivo evita que se repita
+> aqui ou em outro cliente saído do mesmo molde.
+
 ## Pendências combinadas
 
 - Trocar `public/logo.svg` (provisório) pela logo definitiva e apontar
   `negocio.logoPath` se o arquivo tiver outro nome.
-- Criar o projeto Vercel ligado a este repositório, com as variáveis de ambiente.
 - Cadastrar as taxas reais da maquininha em Gestão › Taxas do cartão.
+- Trocar a senha do usuário dono no primeiro acesso (Usuários).
