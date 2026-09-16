@@ -16,6 +16,7 @@ outro sistema.
 | Lançamento em lote pela IA (texto colado, PDF ou foto da lista) | `src/lib/lote/`, `/produtos/lote` |
 | Etiqueta com banho, tamanho e aro | `src/components/EtiquetaProduto.tsx` |
 | Venda parcelada no cartão, com a taxa da maquininha descontada do lucro | `src/lib/taxasCartao.ts`, `/financeiro/taxas-cartao` |
+| Compra parcelada do fornecedor virando contas a pagar | `src/lib/compras.ts`, `src/lib/parcelas.ts` |
 | Tema escuro com acento ouro rosé | `src/app/globals.css` |
 
 O vocabulário ("Peça" no lugar de "Produto"), as opções de cada campo, as
@@ -83,6 +84,36 @@ id e tenta o seguinte sozinho, sem deploy.
 Para fixar um modelo à força — teste, ou contornar um problema —, basta preencher
 `OPENAI_ASSISTANT_MODEL` (ou `OPENAI_TRANSCRIPTION_MODEL`); preenchidas, elas
 mandam em tudo.
+
+### Compra parcelada do fornecedor
+
+O fluxo, em **Compras**:
+
+1. **Lançar o pedido** — itens, frete, e o pagamento: à vista ou em até 24x, com
+   o vencimento da 1ª parcela e a forma de pagamento. A tela mostra a prévia do
+   carnê antes de salvar.
+2. **Enviar o pedido** — é aqui que as parcelas entram em **Despesas** como
+   contas a pagar, uma por mês a partir do vencimento escolhido. Rascunho não
+   gera conta a pagar: ele ainda pode ser editado, e cobrança órfã no sistema é
+   pior que um passo a mais.
+3. **Quando a mercadoria chega**, botão **Receber pedido** → vira lote no
+   estoque, com o frete rateado no custo real.
+
+Cancelar o pedido cancela as parcelas **em aberto**. Parcela já paga não é
+tocada: o dinheiro saiu de verdade, e apagá-la falsearia o caixa.
+
+> **Por que as parcelas não entram no relatório de lucro.** Elas nascem com
+> `entraNoLucroLiquido = false`. O custo da mercadoria já entra no lucro como
+> **CMV**, no momento em que a peça é vendida (`custoRealSnapshot` em ItemVenda).
+> Se a parcela também contasse como despesa operacional, o mesmo dinheiro seria
+> subtraído duas vezes e o lucro apareceria menor do que é — sem nada acusar.
+>
+> Elas continuam aparecendo em Despesas, nos vencimentos e no relatório de
+> despesas, que é onde o dono precisa vê-las: nenhum desses filtra por
+> `entraNoLucroLiquido`. Só o relatório de lucro filtra.
+>
+> A divisão em parcelas joga a sobra dos centavos na **primeira** parcela, para
+> que as seguintes fiquem todas iguais — é como o carnê chega do fornecedor.
 
 ### Cartão parcelado e taxa da maquininha
 

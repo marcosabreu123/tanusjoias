@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireLeitura } from "@/lib/permissoes-servidor";
+import { statusEfetivoDespesa, type StatusEfetivo } from "@/lib/despesas";
 import { AppShell } from "@/components/AppShell";
 import { PageHeader } from "@/components/PageHeader";
 import { buscarPedidoPorId } from "@/lib/compras";
@@ -13,6 +15,20 @@ const LABEL_STATUS: Record<StatusPedido, string> = {
   ENVIADO: "Enviado",
   RECEBIDO: "Recebido",
   CANCELADO: "Cancelado",
+};
+
+const LABEL_PARCELA: Record<StatusEfetivo, string> = {
+  pendente: "Em aberto",
+  pago: "Paga",
+  vencido: "Vencida",
+  cancelado: "Cancelada",
+};
+
+const BADGE_PARCELA: Record<StatusEfetivo, string> = {
+  pendente: "",
+  pago: "badge-success",
+  vencido: "badge-danger",
+  cancelado: "badge-danger",
 };
 
 function badgeStatusClass(status: StatusPedido): string {
@@ -118,6 +134,48 @@ export default async function PedidoDetalhePage({
           <span className="resumo-total-valor">{centavosParaReais(totalPedido)}</span>
         </div>
       </section>
+
+      {pedido.parcelasDespesa.length > 0 && (
+        <section className="mb-6">
+          <h2 className="label-caps mb-3">
+            Parcelas em contas a pagar
+            {pedido.parcelas > 1 ? ` (${pedido.parcelas}x)` : ""}
+          </h2>
+          <ul className="flex flex-col gap-2">
+            {pedido.parcelasDespesa.map((parcela) => {
+              const situacao = statusEfetivoDespesa(parcela);
+              return (
+                <li key={parcela.id}>
+                  <Link
+                    href={`/despesas/${parcela.id}`}
+                    className="card card-interactive flex items-center justify-between gap-3 p-4"
+                  >
+                    <div>
+                      <p className="font-medium">
+                        Parcela {parcela.numeroParcela}/{pedido.parcelas}
+                      </p>
+                      <p className="text-sm" style={{ color: "var(--muted)" }}>
+                        vence em {parcela.vencimento?.toLocaleDateString("pt-BR") ?? "—"}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold">{centavosParaReais(parcela.valor)}</p>
+                      <span className={`badge ${BADGE_PARCELA[situacao]}`}>
+                        {LABEL_PARCELA[situacao]}
+                      </span>
+                    </div>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-3 text-sm" style={{ color: "var(--muted)" }}>
+            Estas parcelas <strong>não entram no relatório de lucro</strong> — o custo da
+            mercadoria já entra lá como CMV quando a peça é vendida. Contá-las de novo
+            subtrairia o mesmo dinheiro duas vezes.
+          </p>
+        </section>
+      )}
 
       <section className="mb-6 no-print">
         <h2 className="label-caps mb-3">Ações</h2>

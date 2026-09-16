@@ -37,6 +37,11 @@ export default async function EditarPedidoPage({
           })),
           valorFrete: pedido.valorFrete,
           observacoes: pedido.observacoes,
+          parcelas: pedido.parcelas,
+          primeiroVencimento: pedido.primeiroVencimento
+            ? pedido.primeiroVencimento.toISOString().slice(0, 10)
+            : "",
+          formaPagamentoCompra: pedido.formaPagamentoCompra ?? "",
         }}
       />
     </AppShell>

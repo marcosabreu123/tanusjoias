@@ -26,6 +26,7 @@ function revalidarPosCompra(pedidoId?: string) {
   revalidatePath("/estoque");
   revalidatePath("/produtos");
   revalidatePath("/dashboard");
+  revalidatePath("/despesas");
   if (pedidoId) revalidatePath(`/compras/${pedidoId}`);
 }
 
@@ -44,7 +45,7 @@ export async function criarPedidoAction(
       entidadeId: pedido.id,
     });
     if (enviarAoSalvar) {
-      await enviarPedido(pedido.id);
+      await enviarPedido(pedido.id, usuario.id);
       await registrarAuditoria({
         usuarioId: usuario.id,
         acao: "pedido.enviar",
@@ -81,7 +82,7 @@ export async function atualizarPedidoAction(pedidoId: string, dados: DadosPedido
 export async function enviarPedidoAction(pedidoId: string): Promise<ResultadoAcaoCompra> {
   try {
     const usuario = await requireEscrita("compras");
-    await enviarPedido(pedidoId);
+    await enviarPedido(pedidoId, usuario.id);
     await registrarAuditoria({
       usuarioId: usuario.id,
       acao: "pedido.enviar",
@@ -99,7 +100,7 @@ export async function enviarPedidoAction(pedidoId: string): Promise<ResultadoAca
 export async function cancelarPedidoAction(pedidoId: string): Promise<ResultadoAcaoCompra> {
   try {
     const usuario = await requireEscrita("compras");
-    await cancelarPedido(pedidoId);
+    await cancelarPedido(pedidoId, usuario.id);
     await registrarAuditoria({
       usuarioId: usuario.id,
       acao: "pedido.cancelar",

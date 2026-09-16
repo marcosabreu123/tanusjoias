@@ -1,5 +1,9 @@
 import { prisma } from "./db";
-import type { StatusPedido, Prisma } from "@prisma/client";
+import type { FormaPagamentoDespesa, StatusPedido, Prisma } from "@prisma/client";
+import { somarMeses } from "./garantia";
+import { dividirEmParcelas, MAX_PARCELAS_COMPRA } from "./parcelas";
+
+export { dividirEmParcelas, MAX_PARCELAS_COMPRA };
 
 export class ErroCompra extends Error {}
 
@@ -15,7 +19,98 @@ export type DadosPedido = {
   itens: ItemPedidoEntrada[];
   valorFrete?: number; // centavos
   observacoes?: string | null;
+  /** 1 = à vista. Acima disso vira carnê em contas a pagar ao enviar o pedido. */
+  parcelas?: number;
+  /** Vencimento da 1ª parcela; as seguintes caem de mês em mês. */
+  primeiroVencimento?: Date | null;
+  formaPagamentoCompra?: FormaPagamentoDespesa | null;
 };
+
+/** Nome da categoria de despesa usada pelas parcelas de compra. */
+export const CATEGORIA_COMPRA = "Compra de mercadoria";
+
+/** Valor total do pedido: itens (venda + demonstração) mais o frete. */
+export function totalDoPedido(pedido: {
+  valorFrete: number;
+  itens: Array<{ custoUnitario: number; quantidade: number; quantidadeDemonstracao: number }>;
+}): number {
+  const itens = pedido.itens.reduce(
+    (soma, item) => soma + item.custoUnitario * (item.quantidade + item.quantidadeDemonstracao),
+    0
+  );
+  return itens + pedido.valorFrete;
+}
+
+async function categoriaDeCompra(tx: Prisma.TransactionClient): Promise<string> {
+  const existente = await tx.categoriaDespesa.findFirst({ where: { nome: CATEGORIA_COMPRA } });
+  if (existente) return existente.id;
+  const criada = await tx.categoriaDespesa.create({
+    data: { nome: CATEGORIA_COMPRA, padrao: true },
+  });
+  return criada.id;
+}
+
+/**
+ * Transforma o pedido no carnê da compra: uma despesa por parcela, vencendo de
+ * mês em mês, já dentro de contas a pagar.
+ *
+ * REGRA CENTRAL — estas despesas nascem com `entraNoLucroLiquido: false`.
+ * O custo da mercadoria já entra no lucro como CMV no momento em que a peça é
+ * vendida (via `custoRealSnapshot` em ItemVenda). Se a parcela também entrasse
+ * como despesa operacional, o mesmo dinheiro seria subtraído duas vezes e o
+ * lucro apareceria menor do que é — silenciosamente, porque nada acusaria.
+ *
+ * Elas continuam aparecendo normalmente em Despesas, no vencimento e no
+ * relatório de despesas: nenhum desses filtra por `entraNoLucroLiquido`. Só o
+ * relatório de lucro filtra, que é exatamente onde elas não podem entrar.
+ */
+async function gerarParcelasDoPedido(
+  tx: Prisma.TransactionClient,
+  pedidoId: string,
+  usuarioId: string
+): Promise<number> {
+  const pedido = await tx.pedidoDeCompra.findUnique({
+    where: { id: pedidoId },
+    include: { itens: true, fornecedor: true },
+  });
+  if (!pedido) throw new ErroCompra("Pedido não encontrado.");
+
+  const total = totalDoPedido(pedido);
+  if (total <= 0) return 0;
+
+  const quantidade = Math.max(1, Math.min(pedido.parcelas, MAX_PARCELAS_COMPRA));
+  const valores = dividirEmParcelas(total, quantidade);
+  const categoriaId = await categoriaDeCompra(tx);
+  const primeiro = pedido.primeiroVencimento ?? new Date();
+  const referencia = pedido.id.slice(-6).toUpperCase();
+
+  for (const [indice, valor] of valores.entries()) {
+    const vencimento = somarMeses(primeiro, indice);
+    await tx.despesa.create({
+      data: {
+        descricao:
+          quantidade > 1
+            ? `Compra ${referencia} — ${pedido.fornecedor.nome} (${indice + 1}/${quantidade})`
+            : `Compra ${referencia} — ${pedido.fornecedor.nome}`,
+        categoriaId,
+        fornecedorId: pedido.fornecedorId,
+        valor,
+        // Competência na data do pedido, vencimento na data da parcela: é o que
+        // faz a conta cair no mês certo em contas a pagar.
+        dataDespesa: vencimento,
+        vencimento,
+        formaPagamento: pedido.formaPagamentoCompra,
+        classificacao: "VARIAVEL",
+        entraNoLucroLiquido: false,
+        pedidoCompraId: pedido.id,
+        numeroParcela: indice + 1,
+        usuarioId,
+      },
+    });
+  }
+
+  return valores.length;
+}
 
 function validarItens(itens: ItemPedidoEntrada[]) {
   if (itens.length === 0) {
@@ -39,6 +134,9 @@ export async function criarPedido(dados: DadosPedido) {
       fornecedorId: dados.fornecedorId,
       valorFrete: dados.valorFrete ?? 0,
       observacoes: dados.observacoes?.trim() || null,
+      parcelas: Math.max(1, Math.min(dados.parcelas ?? 1, MAX_PARCELAS_COMPRA)),
+      primeiroVencimento: dados.primeiroVencimento ?? null,
+      formaPagamentoCompra: dados.formaPagamentoCompra ?? null,
       itens: {
         create: dados.itens.map((item) => ({
           produtoId: item.produtoId,
@@ -72,6 +170,9 @@ export async function atualizarPedido(id: string, dados: DadosPedido) {
         fornecedorId: dados.fornecedorId,
         valorFrete: dados.valorFrete ?? 0,
         observacoes: dados.observacoes?.trim() || null,
+        parcelas: Math.max(1, Math.min(dados.parcelas ?? 1, MAX_PARCELAS_COMPRA)),
+        primeiroVencimento: dados.primeiroVencimento ?? null,
+        formaPagamentoCompra: dados.formaPagamentoCompra ?? null,
         itens: {
           create: dados.itens.map((item) => ({
             produtoId: item.produtoId,
@@ -86,7 +187,12 @@ export async function atualizarPedido(id: string, dados: DadosPedido) {
   });
 }
 
-export async function enviarPedido(id: string) {
+/**
+ * Enviar é o momento em que a compra vira compromisso — e por isso é aqui que
+ * as parcelas entram em contas a pagar, não na criação: rascunho ainda pode ser
+ * editado, e gerar conta a pagar de rascunho deixaria cobrança órfã no sistema.
+ */
+export async function enviarPedido(id: string, usuarioId: string) {
   return prisma.$transaction(async (tx) => {
     const pedido = await tx.pedidoDeCompra.findUnique({ where: { id } });
     if (!pedido) {
@@ -95,11 +201,17 @@ export async function enviarPedido(id: string) {
     if (pedido.status !== "RASCUNHO") {
       throw new ErroCompra('Só é possível enviar pedidos em rascunho.');
     }
-    return tx.pedidoDeCompra.update({ where: { id }, data: { status: "ENVIADO" } });
+
+    const parcelasCriadas = await gerarParcelasDoPedido(tx, id, usuarioId);
+    const atualizado = await tx.pedidoDeCompra.update({
+      where: { id },
+      data: { status: "ENVIADO" },
+    });
+    return { pedido: atualizado, parcelasCriadas };
   });
 }
 
-export async function cancelarPedido(id: string) {
+export async function cancelarPedido(id: string, usuarioId: string, motivo?: string) {
   return prisma.$transaction(async (tx) => {
     const pedido = await tx.pedidoDeCompra.findUnique({ where: { id } });
     if (!pedido) {
@@ -111,7 +223,24 @@ export async function cancelarPedido(id: string) {
     if (pedido.status === "CANCELADO") {
       throw new ErroCompra("Este pedido já foi cancelado.");
     }
-    return tx.pedidoDeCompra.update({ where: { id }, data: { status: "CANCELADO" } });
+
+    // Parcela já paga NÃO é mexida: o dinheiro saiu de verdade, e apagar isso
+    // falsearia o caixa. Só as em aberto são canceladas.
+    const canceladas = await tx.despesa.updateMany({
+      where: { pedidoCompraId: id, status: "PENDENTE" },
+      data: {
+        status: "CANCELADO",
+        canceladoPorId: usuarioId,
+        canceladoEm: new Date(),
+        motivoCancelamento: motivo?.trim() || "Pedido de compra cancelado.",
+      },
+    });
+
+    const atualizado = await tx.pedidoDeCompra.update({
+      where: { id },
+      data: { status: "CANCELADO" },
+    });
+    return { pedido: atualizado, parcelasCanceladas: canceladas.count };
   });
 }
 
@@ -233,6 +362,7 @@ export async function buscarPedidoPorId(id: string) {
       fornecedor: true,
       itens: { include: { produto: true, lote: true } },
       movimentacoes: { include: { usuario: true }, orderBy: { createdAt: "asc" } },
+      parcelasDespesa: { orderBy: { numeroParcela: "asc" } },
     },
   });
 }

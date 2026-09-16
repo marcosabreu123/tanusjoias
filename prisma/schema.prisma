@@ -173,11 +173,18 @@ model PedidoDeCompra {
   valorFrete      Int          @default(0) // centavos — rateado entre os itens na Fase 2.x
   status          StatusPedido @default(RASCUNHO)
   observacoes     String?
+  /// Parcelamento combinado com o fornecedor. 1 = à vista.
+  parcelas             Int                    @default(1)
+  /// Vencimento da 1ª parcela; as seguintes caem de mês em mês a partir dela.
+  primeiroVencimento   DateTime?
+  formaPagamentoCompra FormaPagamentoDespesa?
   createdAt       DateTime     @default(now())
 
   fornecedor    Fornecedor           @relation(fields: [fornecedorId], references: [id])
   itens         ItemPedidoDeCompra[]
   movimentacoes MovimentacaoEstoque[]
+  /// Uma despesa por parcela — o carnê da compra dentro de contas a pagar.
+  parcelasDespesa Despesa[]
 }
 
 model ItemPedidoDeCompra {
@@ -475,6 +482,13 @@ model Despesa {
   statusRecorrencia StatusRecorrencia? // só populado no registro "template" da série (despesaOrigemId null)
   despesaOrigemId   String? // FK para o template; null no template e em despesas avulsas
 
+  /// Parcela de um pedido de compra. Estas despesas nascem com
+  /// entraNoLucroLiquido = false: o custo da mercadoria já entra no lucro como
+  /// CMV quando a peça é vendida, e contá-lo de novo aqui subtrairia o mesmo
+  /// dinheiro duas vezes. Ver gerarParcelasDoPedido() em src/lib/compras.ts.
+  pedidoCompraId String?
+  numeroParcela  Int?
+
   usuarioId          String
   canceladoPorId     String?
   canceladoEm        DateTime?
@@ -490,11 +504,13 @@ model Despesa {
   canceladoPor  Usuario?         @relation("DespesaCanceladaPor", fields: [canceladoPorId], references: [id])
   despesaOrigem Despesa?         @relation("SerieRecorrencia", fields: [despesaOrigemId], references: [id])
   ocorrencias   Despesa[]        @relation("SerieRecorrencia")
+  pedidoCompra  PedidoDeCompra?  @relation(fields: [pedidoCompraId], references: [id])
 
   @@unique([despesaOrigemId, dataDespesa])
   @@index([dataDespesa])
   @@index([status])
   @@index([categoriaId])
+  @@index([pedidoCompraId])
 }
 
 // ---------- Insumos operacionais (Fase 5.4) ----------

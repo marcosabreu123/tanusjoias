@@ -283,6 +283,9 @@ export const nicho: ConfigNicho = {
     "Berloque",
   ],
   categoriasDespesaIniciais: [
+    // Usada pelas parcelas de pedido de compra — ver CATEGORIA_COMPRA em
+    // src/lib/compras.ts. Se renomear aqui, renomeie lá também.
+    "Compra de mercadoria",
     "Aluguel",
     "Energia",
     "Água",

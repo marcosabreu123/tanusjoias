@@ -6,7 +6,15 @@ import { FornecedorAutocomplete } from "@/components/FornecedorAutocomplete";
 import { ProdutoAutocomplete, type ProdutoBusca } from "@/components/ProdutoAutocomplete";
 import { centavosParaReais, reaisParaCentavos } from "@/lib/money";
 import { criarPedidoAction, atualizarPedidoAction } from "../actions";
+import { dividirEmParcelas, MAX_PARCELAS_COMPRA } from "@/lib/parcelas";
+import type { DadosPedido } from "@/lib/compras";
 import { nicho, rotuloDemonstracao } from "@/config/nicho";
+
+/** "2026-03-14" → "14/03/2026", sem passar por Date (evita susto de fuso). */
+function formatarDataBR(iso: string): string {
+  const [ano, mes, dia] = iso.split("-");
+  return dia && mes && ano ? `${dia}/${mes}/${ano}` : iso;
+}
 
 type ItemLocal = {
   produtoId: string;
@@ -31,6 +39,10 @@ export type ValoresIniciaisPedido = {
   itens: ItemPedidoInicial[];
   valorFrete: number; // centavos
   observacoes: string | null;
+  parcelas?: number;
+  /** "YYYY-MM-DD" */
+  primeiroVencimento?: string;
+  formaPagamentoCompra?: string;
 };
 
 export function PedidoForm({
@@ -65,6 +77,13 @@ export function PedidoForm({
       : ""
   );
   const [observacoes, setObservacoes] = useState(valoresIniciais?.observacoes ?? "");
+  const [parcelas, setParcelas] = useState(valoresIniciais?.parcelas ?? 1);
+  const [primeiroVencimento, setPrimeiroVencimento] = useState(
+    valoresIniciais?.primeiroVencimento ?? ""
+  );
+  const [formaPagamentoCompra, setFormaPagamentoCompra] = useState(
+    valoresIniciais?.formaPagamentoCompra ?? ""
+  );
 
   const total = useMemo(
     () =>
@@ -74,6 +93,13 @@ export function PedidoForm({
         0
       ) + reaisParaCentavos(valorFreteStr || "0"),
     [itens, valorFreteStr]
+  );
+
+  // Mesma divisão que o servidor fará ao enviar o pedido — a prévia não pode
+  // mostrar um número e o carnê sair outro.
+  const parcelasPrevia = useMemo(
+    () => (total > 0 ? dividirEmParcelas(total, parcelas) : []),
+    [total, parcelas]
   );
 
   function adicionarProduto(produto: ProdutoBusca) {
@@ -113,6 +139,10 @@ export function PedidoForm({
       fornecedorId: fornecedor!.id,
       valorFrete: reaisParaCentavos(valorFreteStr || "0"),
       observacoes: observacoes || null,
+      parcelas,
+      // Meio-dia evita que o fuso jogue o vencimento para o dia anterior.
+      primeiroVencimento: primeiroVencimento ? new Date(`${primeiroVencimento}T12:00:00`) : null,
+      formaPagamentoCompra: (formaPagamentoCompra || null) as DadosPedido["formaPagamentoCompra"],
       itens: itens.map((item) => ({
         produtoId: item.produtoId,
         quantidade: item.quantidade,
@@ -257,6 +287,82 @@ export function PedidoForm({
             onChange={(evento) => setValorFreteStr(evento.target.value)}
           />
         </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div>
+            <label className="label" htmlFor="parcelas">
+              Pagamento
+            </label>
+            <select
+              id="parcelas"
+              className="input"
+              value={parcelas}
+              onChange={(evento) => setParcelas(Number(evento.target.value))}
+            >
+              {Array.from({ length: MAX_PARCELAS_COMPRA }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={n}>
+                  {n === 1 ? "À vista" : `${n}x`}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor="primeiroVencimento">
+              {parcelas > 1 ? "Vencimento da 1ª parcela" : "Vencimento"}
+            </label>
+            <input
+              id="primeiroVencimento"
+              type="date"
+              className="input"
+              value={primeiroVencimento}
+              onChange={(evento) => setPrimeiroVencimento(evento.target.value)}
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="formaPagamentoCompra">
+              Forma de pagamento
+            </label>
+            <select
+              id="formaPagamentoCompra"
+              className="input"
+              value={formaPagamentoCompra}
+              onChange={(evento) => setFormaPagamentoCompra(evento.target.value)}
+            >
+              <option value="">Não informada</option>
+              <option value="BOLETO">Boleto</option>
+              <option value="PIX">Pix</option>
+              <option value="TRANSFERENCIA">Transferência</option>
+              <option value="CARTAO_CREDITO">Cartão de crédito</option>
+              <option value="CARTAO_DEBITO">Cartão de débito</option>
+              <option value="DINHEIRO">Dinheiro</option>
+              <option value="OUTRO">Outro</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Prévia do carnê: o dono confere antes que vire conta a pagar. */}
+        {total > 0 && (
+          <div className="text-sm" style={{ color: "var(--muted)" }}>
+            {parcelas > 1 ? (
+              <>
+                {parcelasPrevia[0] !== parcelasPrevia[parcelasPrevia.length - 1] ? (
+                  <>
+                    1ª de {centavosParaReais(parcelasPrevia[0])} e {parcelas - 1}x de{" "}
+                    {centavosParaReais(parcelasPrevia[1])}
+                  </>
+                ) : (
+                  <>
+                    {parcelas}x de {centavosParaReais(parcelasPrevia[0])}
+                  </>
+                )}
+                {primeiroVencimento && `, a partir de ${formatarDataBR(primeiroVencimento)}`}
+              </>
+            ) : (
+              <>Parcela única de {centavosParaReais(total)}</>
+            )}
+            . Entra em <strong>Despesas</strong> como conta a pagar ao enviar o pedido.
+          </div>
+        )}
+
         <div>
           <label className="label" htmlFor="observacoes">
             Observações
