@@ -188,13 +188,13 @@ export function Sidebar({ usuario }: { usuario: SessaoUsuario }) {
         </nav>
 
         <div className="sidebar-footer">
-          <div className="sidebar-user">
+          <Link href="/conta" className="sidebar-user" onClick={() => setAberto(false)}>
             <div className="avatar">{iniciaisDoNome(usuario.nome)}</div>
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{usuario.nome}</p>
-              <p className="label-caps">{LABEL_PAPEL[usuario.papel]}</p>
+              <p className="label-caps">{LABEL_PAPEL[usuario.papel]} · minha conta</p>
             </div>
-          </div>
+          </Link>
           <form action={logoutAction}>
             <button type="submit" className="btn btn-outline btn-block">
               <IconLogout />
